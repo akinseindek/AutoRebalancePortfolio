@@ -220,6 +220,53 @@
   (ok (map-get? portfolio-tokens { token-id: token-id }))
 )
 
+;; Core rebalancing function - automatically adjusts token holdings to match target allocations
+;; This function checks each token's current allocation against its target and determines
+;; if rebalancing is needed based on the deviation threshold. It includes cooldown period
+;; enforcement, deviation analysis, and comprehensive rebalancing execution across all tokens.
+(define-public (rebalance-portfolio)
+  (begin
+    ;; Security checks: ensure portfolio is not paused
+    (asserts! (not (var-get is-paused)) err-owner-only)
+    
+    ;; Enforce cooldown period: prevent rebalancing too frequently (minimum 144 blocks ~1 day)
+    (asserts! (or (is-eq (var-get last-rebalance-block) u0)
+                  (>= (- block-height (var-get last-rebalance-block)) u144))
+              err-rebalance-threshold)
+    
+    (let (
+      (current-total (var-get total-portfolio-value))
+      (needs-rebalance false)
+      (token-count-active (var-get token-count))
+      (rebalance-results (list))
+    )
+      ;; Validate portfolio state before rebalancing
+      (asserts! (> current-total u0) err-insufficient-balance)
+      (asserts! (> token-count-active u0) err-portfolio-full)
+      
+      ;; Calculate maximum deviation across all tokens to determine if rebalancing is necessary
+      (let (
+        (max-deviation (fold check-max-deviation (list u0 u1 u2 u3 u4 u5 u6 u7 u8 u9) u0))
+      )
+        ;; Only proceed with rebalancing if maximum deviation exceeds threshold
+        (asserts! (>= max-deviation rebalance-threshold) err-rebalance-threshold)
+        
+        ;; Execute rebalancing: iterate through all tokens and adjust their allocations
+        (map check-and-rebalance-token (list u0 u1 u2 u3 u4 u5 u6 u7 u8 u9))
+        
+        ;; Update last rebalance block timestamp
+        (var-set last-rebalance-block block-height)
+        
+        ;; Recalculate and update total portfolio value after rebalancing
+        (unwrap! (update-portfolio-value) err-insufficient-balance)
+        
+        ;; Return success with rebalancing details
+        (ok true)
+      )
+    )
+  )
+)
+
 ;; Helper function to find maximum deviation across all tokens
 (define-private (check-max-deviation (token-id uint) (current-max uint))
   (match (map-get? portfolio-tokens { token-id: token-id })
